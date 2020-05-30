@@ -1,7 +1,3 @@
 .DS_Store
-glossary_rsf071607.pdf
-mission-454-introduction-to-modeling-takeaways.pdf
-mission-455-bivariate-relationships---correlation-and-scatterplots-takeaways.pdf
-mission-456-estimating-the-coefficients-and-fitting-linear-models-takeaways.pdf
-mission-457-assessing-the-accuracy-of-the-model-takeaways.pdf
-mission-458-fitting-many-linear-models-takeaways.pdf
+./Notes/*
+.Rhistory
