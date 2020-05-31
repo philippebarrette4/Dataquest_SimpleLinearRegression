@@ -139,6 +139,23 @@ multi_unit_sales <- NYC_condos %>%
 NYC_condos <- NYC_condos %>%
   anti_join(multi_unit_sales)
 ```
+
+&nbsp;
+
+#### Data Vizualisation without multi-unit sales
+```{r message=FALSE, warning=FALSE}
+ggplot(data = NYC_condos, aes(x = gross_square_feet, 
+                              y = sale_price)) +
+  geom_point(alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ borough, scales = "free", ncol = 2) +
+  labs(title = "Condominiums sale prices explained by gross square feet",
+       x = "Size (Gross Square Feet)",
+       y = "Sale Price (USD)") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
 &nbsp;
 
 ### 3) Linear Regression Models for each Borough - coefficient Estimates
