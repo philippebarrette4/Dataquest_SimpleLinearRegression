@@ -1,0 +1,268 @@
+---
+title: "Guided Project - Predicting Condominium Sale Prices"
+author: "Philippe Barrette-Hébert"
+date: "31/05/2020"
+output: 
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+In this project, I'll use bivariate linear regression to predict condominium sale prices of New York city.
+First of all, I will vizualise the data and explore it.
+Second of all, I will clean the data by removing outliers or multi-unit sales.
+Third of all, I will fit a model for all boroughs of NYC.
+Finally, I will fit multiple models for each borough individually.
+
+&nbsp;
+
+# Analysis
+```{r message=FALSE}
+# Loading the nessecary packages 
+library(readr) # Load and write csv files
+library(ggplot2) # Data vizualisation
+library(dplyr) # Data wrangling and manipulation
+library(tidyr) # Nesting and unnesting dataframes 
+library(purrr) # Fit models to nested dataframes with map()
+library(broom) # Returns tidy dataframes
+```
+
+```{r message=FALSE}
+# Data importation
+NYC_property_sales <- read_csv("NYC_property_sales.csv")
+# Glimpse of the dataset
+glimpse(NYC_property_sales)
+#Verify if "R4" category is in the data
+#Had a problem with the latest version of dataset online
+#The csv file with the dataTransfo.R file doesn't contain R4 buildings
+"R4" %in% unique(NYC_property_sales$building_class_at_time_of_sale)
+
+# Filtering of the data (Condominium only)
+NYC_condos <- NYC_property_sales %>%
+  filter(building_class_at_time_of_sale == "R4")
+```
+&nbsp;
+
+### 1) Vizualisation of the data with scatterplots
+#### Data Vizualisation of sale_price explained by gross_square_feet
+```{r message=FALSE, warning=FALSE}
+ggplot(data = NYC_condos, aes(x = gross_square_feet, 
+                              y = sale_price)) +
+  geom_point(aes(color = borough), alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma, limits = c(0, 75000000)) +
+  xlim(0, 10000) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Condominiums sale prices explained by gross square feet",
+       x = "Size (Gross Square Feet)",
+       y = "Sale Price (USD)") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+&nbsp;
+
+#### Data Vizualisation of sale_price explained by gross_square_feet with different scales on the y and x axis
+```{r message=FALSE, warning=FALSE}
+#The majority of the condominiums havs a size ofless than 5000 feet
+#The plot has a linear tendency (as the size grow, the sale price tends to grow)
+ggplot(data = NYC_condos, aes(x = gross_square_feet, 
+                              y = sale_price)) +
+  geom_point(aes(color = borough), alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma, limits = c(0, 20000000)) +
+  xlim(0, 5000) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Condominiums sale prices explained by gross square feet",
+       x = "Size (Gross Square Feet)",
+       y = "Sale Price (USD)") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Looking at the plot above, we see that, in general, 
+larger condominiums are associated with a higher sale price in each borough. 
+The data follows a somewhat linear pattern in each plot. But the spread 
+is difficult to see with the Manhattan scatterplot, potentially because 
+of the property sale of around $200 million visible to the far-right which may 
+be impacting the visualization. There is no obvious curvature with the shape of the data, 
+for any borough. The strength of the bivariate relationship is moderate for most boroughs, 
+except for the Queens borough which looks to have a weaker relationship between sale price 
+and size.
+
+&nbsp;
+
+#### Data Vizualisation of sale_price explained by gross_square_feet with boroughs separeted with the addition of the facet_wrap()
+```{r message=FALSE, warning=FALSE}
+ggplot(data = NYC_condos, aes(x = gross_square_feet, 
+                              y = sale_price)) +
+  geom_point(alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ borough, scales = "free", ncol = 2) +
+  labs(title = "Condominiums sale prices explained by gross square feet",
+       x = "Size (Gross Square Feet)",
+       y = "Sale Price (USD)") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+&nbsp;
+
+### 2) Outliers and Data Integrity Issues
+```{r message=FALSE}
+#Creating a copy before the transformation of NYC_condos
+NYC_condos_original <- NYC_condos
+
+#Removing the sale record of 200 000 000$ because its an extrem value
+NYC_condos <- NYC_condos %>%
+  filter(address != "165 East 66th St, Resi")
+
+#Removing the sale record of this address because it's an exception and 
+#it will influence our model
+NYC_condos <- NYC_condos %>%
+  filter(address != "220 Central Park South, 50")
+```
+
+```{r message=FALSE, warning=FALSE}
+#Investigation of the forty sale records in the Brooklyn borough
+#This record sales represent the same transaction, the sale price represent the price for all
+#the forty units, not the price for each unit. 
+
+#This is sale records where there are multiple entries
+#It contains the transaction of 40 units 
+multi_unit_sales <- NYC_condos %>%
+  group_by(sale_price, sale_date) %>%
+  filter(n() >= 3) %>%
+  arrange(desc(sale_price))
+
+#Removing these multiple unit sales
+NYC_condos <- NYC_condos %>%
+  anti_join(multi_unit_sales)
+```
+&nbsp;
+
+### 3) Linear Regression Models for each Borough - coefficient Estimates
+```{r}
+#Nesting NYC_condos by borough
+NYC_nested <- NYC_condos %>%
+  group_by(borough) %>%
+  nest()
+```
+
+```{r message=FALSE}
+#Inspection of the data structure
+NYC_nested
+NYC_nested$data[[1]]
+```
+
+```{r}
+# Fitting of linear models for each borough, individually
+NYC_coefficients <- NYC_condos %>%
+  group_by(borough) %>%
+  nest() %>%
+  mutate(linear_model = map(.x = data,
+                            .f = ~lm(sale_price ~ gross_square_feet,
+                                     data = .)))
+```
+
+```{r}
+# Inspection of the result of code above
+print(NYC_coefficients)
+```
+
+```{r}
+# More detailed summary
+summary(NYC_coefficients$linear_model[[1]])
+```
+
+```{r}
+# Generation of a tidy df of coefficient estimates that includes conf. int.
+NYC_coefficients <- NYC_condos %>%
+  group_by(borough) %>%
+  nest() %>%
+    mutate(linear_model = map(.x = data,
+                            .f = ~lm(sale_price ~ gross_square_feet,
+                                     data = .))) %>%
+  mutate(tidy_coefficients = map(.x = linear_model,
+                                 .f = tidy,
+                                 conf.int = TRUE))
+# Inspection of the new data structure 
+print(NYC_coefficients)
+```
+
+```{r}
+# Extraction of the new column added (`tidy_coefficients`)
+print(NYC_coefficients$tidy_coefficients[[1]])
+
+```
+
+```{r}
+# Unnesting to a tidy dataframe of coefficient estimates
+NYC_coefficients_tidy <- NYC_coefficients %>%
+  select(borough, tidy_coefficients) %>%
+  unnest(cols = tidy_coefficients)
+print(NYC_coefficients_tidy)
+```
+
+```{r}
+# slope estimate fitering
+NYC_slope <- NYC_coefficients_tidy %>%
+  filter(term == "gross_square_feet") %>%
+  arrange(estimate)
+print(NYC_slope)
+```
+
+From the output above, we can see that the slopes are very different. In Staten Island, an increase of one square foot is estimated to increase the sale price by about 288\$. In contrast, in Manhattan, an increase of one square foot is estimated to increase the sale price by about 4054\$.
+
+Using the results from the previous chunk of code, we can infer that, in general, a condominium in Staten Island will cost less per square foot than in Manhattan.
+
+&nbsp;
+
+### 4) Linear Regression Models for each Borough - Regression Summary Statistics
+```{r}
+# Generation of a tidy df of regression summary statistics
+NYC_summary_stats <- NYC_condos %>%
+  group_by(borough) %>%
+  nest() %>%
+    mutate(linear_model = map(.x = data,
+                            .f = ~lm(sale_price ~ gross_square_feet,
+                                     data = .))) %>%
+  mutate(tidy_summary_stats = map(.x = linear_model,
+                                 .f = glance))
+print(NYC_summary_stats)
+```
+
+```{r}
+# Unnesting to a tidy dataframe of regression summary statistics
+NYC_summary_stats_tidy <- NYC_summary_stats %>%
+  select(borough, tidy_summary_stats) %>%
+  unnest(cols = tidy_summary_stats) %>%
+  arrange(r.squared)
+print(NYC_summary_stats_tidy)
+```
+&nbsp;
+
+# Conclusion
+Our analysis showed that, in general, the `gross_square_feet` variable is useful for explaining, or estimating, `sale_price` for condominiums in New York City. We observed that removing multi-unit sales from the dataset increased model accuracy. With linear models generated for New York City as a whole, and with linear models generated for each borough individually, we observed in all cases that the t-statistic was high enough, and the p-value was low enough, to declare that there is a relationship between `gross_square_feet` and `sale_price`.
+
+For the linear models that we generated for each individual borough, we observed a wide range in slope estimates. The slope estimate for Manhattan was much higher than the estimate for any of the other boroughs. We did remove the record-setting \$240 million property sale from the dataset.
+
+Finally, regression summary statistics indicate that `gross_square_feet` is a better single predictor of `sale_price` in some boroughs versus others. For example, the R-squared value was estimated at approximately 0.63 in Manhattan, and 0.52 in Brooklyn, compared to an estimate of only 0.35 in Queens. These differences in R-squared correspond with the scatterplots generated for each borough; the strength of sale prices versus gross square feet was higher, and the dispersion (spread), was lower for Manhattan and Brooklyn as compared to Queens where the relationship was noticeably weaker because the data was more spread out.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
